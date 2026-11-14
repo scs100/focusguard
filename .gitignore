@@ -1,0 +1,10 @@
+.DS_Store
+专注时间.app/
+专注时间.zip
+backup/
+artifacts/
+**/.backup/
+**/seal.key
+**/*.mac
+**/worduse
+**/*.log
