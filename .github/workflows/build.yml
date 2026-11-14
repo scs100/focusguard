@@ -1,0 +1,63 @@
+name: macOS build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build on ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build and run isolated self-tests
+        run: bash FocusGuard/build.sh
+      - name: Verify packaged files and signature integrity
+        shell: bash
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          with zipfile.ZipFile("专注时间.zip") as archive:
+              assert archive.testzip() is None, "Corrupt ZIP entry"
+              expected = {
+                  "专注时间/LICENSE",
+                  "专注时间/请先读我.md",
+                  "专注时间/专注时间.app/Contents/MacOS/FocusGuard",
+                  "专注时间/专注时间.app/Contents/Resources/SaveHelper",
+                  "专注时间/专注时间.app/Contents/Resources/com.focusguard.save.plist",
+              }
+              missing = expected - set(archive.namelist())
+              assert not missing, f"Missing packaged files: {sorted(missing)}"
+              assert archive.read("专注时间/LICENSE") == Path("LICENSE").read_bytes()
+          PY
+          ditto -x -k "专注时间.zip" "$RUNNER_TEMP/package-check"
+          codesign --verify --deep --strict "$RUNNER_TEMP/package-check/专注时间/专注时间.app"
+      - name: Prepare build artifacts
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/build-artifacts"
+          cp "专注时间.zip" "$RUNNER_TEMP/build-artifacts/"
+          cd "$RUNNER_TEMP/build-artifacts"
+          shasum -a 256 "专注时间.zip" > SHA256SUMS
+      - name: Retain development build
+        uses: actions/upload-artifact@v7
+        with:
+          name: focusguard-${{ matrix.runner }}
+          path: ${{ runner.temp }}/build-artifacts/
+          if-no-files-found: error
+          retention-days: 7
